@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SALTWORKS — a tactical FPS in three.js</title>
+<style>
+  :root {
+    --canvas: #1b1f26;
+    --sand: #c9bda2;
+    --concrete: #8d8579;
+    --steel: #4a5560;
+    --gunmetal: #23282c;
+    --shadow: #2b333c;
+    --amber: #ffb347;
+    --bone: #e8e2d4;
+    --blood: #7a2226;
+    --tide: #d8843f;
+    --warden: #6f8fa8;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--canvas); overflow: hidden; }
+  body { font-family: var(--mono); color: var(--bone); -webkit-font-smoothing: antialiased; }
+  #stage { position: fixed; inset: 0; display: block; cursor: crosshair; }
+  body.locked #stage { cursor: none; }
+  #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+  body.capture #hud-hint { opacity: 0 !important; }
+
+  .label { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--concrete); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---- top bar: score, clock, phase */
+  #hud-top { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); text-align: center; }
+  .scoreline { display: flex; align-items: baseline; gap: 14px; justify-content: center; }
+  .scoreline .side { font-size: 11px; letter-spacing: 0.2em; }
+  .scoreline .tide { color: var(--tide); }
+  .scoreline .warden { color: var(--warden); }
+  .scoreline .val { font-size: 26px; line-height: 1; font-weight: 600; }
+  .clock { font-size: 30px; letter-spacing: 0.06em; line-height: 1.1; margin-top: 2px; }
+  .clock.low { color: var(--amber); }
+  #hud-phase { font-size: 9px; letter-spacing: 0.3em; color: var(--steel); margin-top: 3px; }
+
+  /* ---- money + device, top left */
+  #hud-cash { position: absolute; top: 20px; left: 22px; }
+  #hud-money { font-size: 20px; color: var(--amber); letter-spacing: 0.04em; }
+  #hud-bomb { margin-top: 14px; width: 186px; opacity: 0; transition: opacity 0.2s; }
+  #hud-bomb.armed { opacity: 1; }
+  #hud-bomb-label { font-size: 9px; letter-spacing: 0.2em; color: var(--amber); }
+  #hud-bomb-track { height: 3px; background: #ffffff14; margin-top: 5px; }
+  #hud-bomb-fill { height: 100%; width: 0%; background: var(--amber); transition: width 0.12s linear; }
+  #hud-bomb.critical #hud-bomb-fill { background: var(--blood); }
+  #hud-bomb.critical #hud-bomb-label { color: #ff6b5e; }
+
+  /* ---- killfeed, top right */
+  #hud-killfeed { position: absolute; top: 18px; right: 22px; text-align: right; font-size: 11px; line-height: 1.7; }
+  .feed.friendly { color: var(--tide); }
+  .feed.enemy { color: var(--warden); }
+
+  /* ---- vitals, bottom left */
+  #hud-vitals { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: flex-end; gap: 18px; }
+  .vital { min-width: 92px; }
+  .vital .num { font-size: 34px; line-height: 1; letter-spacing: 0.02em; }
+  .vital .track { height: 3px; background: #ffffff14; margin-top: 6px; }
+  .vital .fill { height: 100%; background: var(--bone); }
+  #hud-health-bar { background: var(--bone); }
+  #hud-armor-bar { background: var(--warden); }
+  #hud-armor-wrap .num { font-size: 22px; color: var(--warden); }
+  .vital.low .num, .vital.low #hud-health-bar { color: #ff6b5e; background: #ff6b5e; }
+
+  /* ---- weapon, bottom right */
+  #hud-weapon-wrap { position: absolute; right: 22px; bottom: 22px; text-align: right; }
+  #hud-weapon { font-size: 10px; letter-spacing: 0.24em; color: var(--concrete); }
+  .ammo { display: flex; align-items: baseline; gap: 7px; justify-content: flex-end; }
+  #hud-ammo { font-size: 38px; line-height: 1; }
+  #hud-reserve { font-size: 14px; color: var(--steel); }
+  .ammo.empty #hud-ammo { color: #ff6b5e; }
+
+  /* ---- crosshair */
+  #hud-crosshair { position: absolute; left: 50%; top: 50%; --gap: 6px; }
+  #hud-crosshair i { position: absolute; background: var(--bone); box-shadow: 0 0 2px #000000cc; }
+  #hud-crosshair .cross-top { width: 2px; height: 8px; left: -1px; top: calc(-1 * var(--gap) - 8px); }
+  #hud-crosshair .cross-bottom { width: 2px; height: 8px; left: -1px; top: var(--gap); }
+  #hud-crosshair .cross-left { width: 8px; height: 2px; top: -1px; left: calc(-1 * var(--gap) - 8px); }
+  #hud-crosshair .cross-right { width: 8px; height: 2px; top: -1px; left: var(--gap); }
+  #hud-crosshair.firing i { background: var(--amber); }
+  #hud-crosshair::after { content: ""; position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: var(--bone); }
+
+  #hud-hitmarker { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0; }
+  #hud-hitmarker.on { opacity: 0.95; }
+  #hud-hitmarker::before, #hud-hitmarker::after {
+    content: ""; position: absolute; left: 10px; top: 0; width: 2px; height: 22px; background: var(--bone);
+  }
+  #hud-hitmarker::before { transform: rotate(45deg); }
+  #hud-hitmarker::after { transform: rotate(-45deg); }
+  #hud-hitmarker.lethal::before, #hud-hitmarker.lethal::after { background: var(--amber); }
+
+  #hud-message {
+    position: absolute; left: 50%; top: 24%; transform: translateX(-50%);
+    font-size: 13px; letter-spacing: 0.34em; color: var(--bone); opacity: 0; transition: opacity 0.25s;
+    text-shadow: 0 2px 12px #000000aa;
+  }
+  #hud-hint {
+    position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%);
+    font-size: 10px; letter-spacing: 0.18em; color: var(--concrete); opacity: 0; transition: opacity 0.3s;
+  }
+  #hud-damage {
+    position: absolute; inset: 0; opacity: 0;
+    background: radial-gradient(circle at 50% 50%, transparent 42%, #7a2226cc 100%);
+  }
+
+  /* ---- buy menu */
+  #buy-menu {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 380px; padding: 18px 20px 16px; display: none; pointer-events: none;
+    background: #12161bcc; border: 1px solid #ffffff1f; backdrop-filter: blur(6px);
+  }
+  #buy-menu.open { display: block; }
+  #buy-menu h2 { font-size: 10px; letter-spacing: 0.3em; color: var(--amber); font-weight: 500; }
+  #buy-cash { float: right; font-size: 13px; color: var(--bone); }
+  .buy-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid #ffffff0f; font-size: 12px; }
+  .buy-row:first-of-type { margin-top: 14px; }
+  .buy-row .key { width: 16px; color: var(--steel); }
+  .buy-row .nm { flex: 1; letter-spacing: 0.06em; }
+  .buy-row .tag { font-size: 8px; letter-spacing: 0.16em; color: var(--steel); display: block; margin-top: 2px; }
+  .buy-row .pr { color: var(--amber); }
+  .buy-row.cant .pr, .buy-row.cant .nm { color: #6a6a66; }
+
+  /* ---- scoreboard */
+  #scoreboard {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 560px;
+    display: none; padding: 16px 18px; background: #12161bee; border: 1px solid #ffffff1f;
+  }
+  #scoreboard.open { display: block; }
+  .sb-head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.24em; color: var(--amber); padding-bottom: 10px; border-bottom: 1px solid #ffffff1f; }
+  .sb-row { display: grid; grid-template-columns: 1fr 70px 32px 1fr 44px; gap: 8px; font-size: 11px; padding: 6px 0; border-bottom: 1px solid #ffffff0a; }
+  .sb-row.tide .sb-name { color: var(--tide); }
+  .sb-row.ct .sb-name { color: var(--warden); }
+  .sb-row.down { opacity: 0.42; }
+  .sb-k { text-align: right; color: var(--bone); }
+  .sb-weapon { color: var(--steel); font-size: 9px; letter-spacing: 0.1em; }
+  .sb-status { text-align: right; font-size: 9px; color: var(--steel); }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="hud">
+  <div id="hud-top">
+    <div class="scoreline">
+      <span class="side tide">TIDE</span>
+      <span class="val num tide" id="hud-score-tide">0</span>
+      <span class="side" style="color:var(--steel)">·</span>
+      <span class="val num warden" id="hud-score-warden">0</span>
+      <span class="side warden">WARDEN</span>
+    </div>
+    <div class="clock num" id="hud-timer">1:55</div>
+    <div id="hud-phase">BUY PHASE</div>
+  </div>
+
+  <div id="hud-cash">
+    <div class="label">balance</div>
+    <div class="num" id="hud-money">$800</div>
+    <div id="hud-bomb">
+      <div id="hud-bomb-label">DEVICE · A</div>
+      <div id="hud-bomb-track"><div id="hud-bomb-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="hud-killfeed"></div>
+
+  <div id="hud-vitals">
+    <div class="vital" id="hud-health-wrap">
+      <div class="label">vitals</div>
+      <div class="num" id="hud-health">100</div>
+      <div class="track"><div class="fill" id="hud-health-bar" style="width:100%"></div></div>
+    </div>
+    <div class="vital" id="hud-armor-wrap">
+      <div class="label">plate</div>
+      <div class="num" id="hud-armor">0</div>
+      <div class="track"><div class="fill" id="hud-armor-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div id="hud-weapon-wrap">
+    <div id="hud-weapon">SIDEWINDER</div>
+    <div class="ammo" id="hud-ammo-wrap">
+      <span class="num" id="hud-ammo">12</span>
+      <span id="hud-reserve">/ 48</span>
+    </div>
+  </div>
+
+  <div id="hud-crosshair"></div>
+  <div id="hud-hitmarker"></div>
+  <div id="hud-message"></div>
+  <div id="hud-hint"></div>
+  <div id="hud-damage"></div>
+
+  <div id="buy-menu">
+    <h2>ARMORY <span id="buy-cash">$800</span></h2>
+    <div id="buy-list"></div>
+  </div>
+
+  <div id="scoreboard"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
